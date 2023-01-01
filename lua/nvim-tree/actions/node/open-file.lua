@@ -93,15 +93,17 @@ local function pick_win_id()
     local char = M.window_picker.chars:sub(i, i)
     local ok_status, statusline = pcall(vim.api.nvim_win_get_option, id, "statusline")
     local ok_hl, winhl = pcall(vim.api.nvim_win_get_option, id, "winhl")
+    local ok_winbar, winbar = pcall(vim.api.nvim_win_get_option, id, "winbar")
 
     win_opts[id] = {
       statusline = ok_status and statusline or "",
       winhl = ok_hl and winhl or "",
+      winbar = ok_winbar and winbar or "",
     }
     win_map[char] = id
 
-    vim.api.nvim_win_set_option(id, "statusline", "%=" .. char .. "%=")
-    vim.api.nvim_win_set_option(id, "winhl", "StatusLine:NvimTreeWindowPicker,StatusLineNC:NvimTreeWindowPicker")
+    vim.api.nvim_win_set_option(id, "winbar", "%=" .. char .. "%=")
+    vim.api.nvim_win_set_option(id, "winhl", "Winbar:NvimTreeWindowPicker,WinbarNC:NvimTreeWindowPicker")
 
     i = i + 1
     if i > #M.window_picker.chars then
