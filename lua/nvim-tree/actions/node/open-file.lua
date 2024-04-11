@@ -1,10 +1,13 @@
 -- Copyright 2019 Yazdani Kiyan under MIT License
 local lib = require "nvim-tree.lib"
+local notify = require "nvim-tree.notify"
 local utils = require "nvim-tree.utils"
 local view = require "nvim-tree.view"
 
 local M = {}
 
+---Get single char from user input
+---@return string
 local function get_user_input_char()
   local c = vim.fn.getchar()
   while type(c) ~= "number" do
@@ -58,6 +61,11 @@ local function pick_win_id()
   end
   if #selectable == 1 then
     return selectable[1]
+  end
+
+  if #M.window_picker.chars < #selectable then
+    notify.error(string.format("More windows (%d) than actions.open_file.window_picker.chars (%d).", #selectable, #M.window_picker.chars))
+    return nil
   end
 
   local i = 1
@@ -153,6 +161,20 @@ local function open_file_in_tab(filename)
   vim.cmd("tabe " .. vim.fn.fnameescape(filename))
 end
 
+local function drop(filename)
+  if M.quit_on_open then
+    view.close()
+  end
+  vim.cmd("drop " .. vim.fn.fnameescape(filename))
+end
+
+local function tab_drop(filename)
+  if M.quit_on_open then
+    view.close()
+  end
+  vim.cmd("tab :drop " .. vim.fn.fnameescape(filename))
+end
+
 local function on_preview(buf_loaded)
   if not buf_loaded then
     vim.bo.bufhidden = "delete"
@@ -169,13 +191,13 @@ local function on_preview(buf_loaded)
   view.focus()
 end
 
-local function get_target_winid(mode, win_ids)
+local function get_target_winid(mode)
   local target_winid
-  if not M.window_picker.enable or mode == "edit_no_picker" then
+  if not M.window_picker.enable or mode == "edit_no_picker" or mode == "preview_no_picker" then
     target_winid = lib.target_winid
 
     -- first available window
-    if not vim.tbl_contains(win_ids, target_winid) then
+    if not vim.tbl_contains(vim.api.nvim_tabpage_list_wins(0), target_winid) then
       target_winid = first_win_id()
     end
   else
@@ -206,20 +228,27 @@ local function set_current_win_no_autocmd(winid, autocmd)
   vim.opt.eventignore = eventignore
 end
 
-local function open_in_new_window(filename, mode, win_ids)
+local function open_in_new_window(filename, mode)
   if type(mode) ~= "string" then
     mode = ""
   end
 
-  local target_winid = get_target_winid(mode, win_ids)
+  local target_winid = get_target_winid(mode)
   if not target_winid then
     return
   end
 
-  local create_new_window = #vim.api.nvim_list_wins() == 1
+  -- non-floating, non-nvim-tree windows
+  local win_ids = vim.tbl_filter(function(id)
+    local config = vim.api.nvim_win_get_config(id)
+    local bufnr = vim.api.nvim_win_get_buf(id)
+    return config and config.relative == "" or utils.is_nvim_tree_buf(bufnr)
+  end, vim.api.nvim_list_wins())
+
+  local create_new_window = #win_ids == 1 -- This implies that the nvim-tree window is the only one
   local new_window_side = (view.View.side == "right") and "aboveleft" or "belowright"
 
-  -- Target is invalid or window does not exist in current tabpage: create new window
+  -- Target is invalid: create new window
   if not vim.tbl_contains(win_ids, target_winid) then
     vim.cmd(new_window_side .. " vsplit")
     target_winid = vim.api.nvim_get_current_win()
@@ -235,11 +264,14 @@ local function open_in_new_window(filename, mode, win_ids)
     -- modified, and create new split if it is.
     local target_bufid = vim.api.nvim_win_get_buf(target_winid)
     if vim.api.nvim_buf_get_option(target_bufid, "modified") then
-      mode = "vsplit"
+      if not mode:match "split$" then
+        mode = "vsplit"
+      end
     end
   end
 
   local fname = vim.fn.fnameescape(filename)
+  fname = utils.escape_special_chars(fname)
 
   local cmd
   if create_new_window then
@@ -250,7 +282,7 @@ local function open_in_new_window(filename, mode, win_ids)
     cmd = string.format("edit %s", fname)
   end
 
-  if mode == "preview" and view.View.float.enable then
+  if (mode == "preview" or mode == "preview_no_picker") and view.View.float.enable then
     -- ignore "WinLeave" autocmd on preview
     -- because the registered "WinLeave"
     -- will kill the floating window immediately
@@ -274,9 +306,11 @@ end
 
 local function edit_in_current_buf(filename)
   require("nvim-tree.view").abandon_current_window()
-  vim.cmd("keepjumps edit " .. vim.fn.fnameescape(filename))
+  vim.cmd("keepalt keepjumps edit " .. vim.fn.fnameescape(filename))
 end
 
+---@param mode string
+---@param filename string
 function M.fn(mode, filename)
   if type(mode) ~= "string" then
     mode = ""
@@ -286,21 +320,27 @@ function M.fn(mode, filename)
     return open_file_in_tab(filename)
   end
 
+  if mode == "drop" then
+    return drop(filename)
+  end
+
+  if mode == "tab_drop" then
+    return tab_drop(filename)
+  end
+
   if mode == "edit_in_place" then
     return edit_in_current_buf(filename)
   end
 
-  local tabpage = vim.api.nvim_get_current_tabpage()
-  local win_ids = vim.api.nvim_tabpage_list_wins(tabpage)
   local buf_loaded = is_already_loaded(filename)
 
   local found_win = utils.get_win_buf_from_path(filename)
-  if found_win and mode == "preview" then
+  if found_win and (mode == "preview" or mode == "preview_no_picker") then
     return
   end
 
   if not found_win then
-    open_in_new_window(filename, mode, win_ids)
+    open_in_new_window(filename, mode)
   else
     vim.api.nvim_set_current_win(found_win)
     vim.bo.bufhidden = ""
@@ -310,7 +350,7 @@ function M.fn(mode, filename)
     view.resize()
   end
 
-  if mode == "preview" then
+  if mode == "preview" or mode == "preview_no_picker" then
     return on_preview(buf_loaded)
   end
 

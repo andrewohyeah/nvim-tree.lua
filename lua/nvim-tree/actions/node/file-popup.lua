@@ -2,8 +2,18 @@ local utils = require "nvim-tree.utils"
 
 local M = {}
 
+---@param node Node
+---@return table
 local function get_formatted_lines(node)
   local stats = node.fs_stat
+  if stats == nil then
+    return {
+      "",
+      "  Can't retrieve file information",
+      "",
+    }
+  end
+
   local fpath = " fullpath: " .. node.absolute_path
   local created_at = " created:  " .. os.date("%x %X", stats.birthtime.sec)
   local modified_at = " modified: " .. os.date("%x %X", stats.mtime.sec)
@@ -21,6 +31,7 @@ end
 
 local current_popup = nil
 
+---@param node Node
 local function setup_window(node)
   local lines = get_formatted_lines(node)
 
@@ -52,6 +63,7 @@ function M.close_popup()
   end
 end
 
+---@param node Node
 function M.toggle_file_info(node)
   if node.name == ".." then
     return

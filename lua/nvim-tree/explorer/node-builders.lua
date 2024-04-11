@@ -3,14 +3,19 @@ local watch = require "nvim-tree.explorer.watch"
 
 local M = {}
 
-function M.folder(parent, absolute_path, name)
-  local handle = utils.fs_scandir_profiled(absolute_path)
-  local has_children = handle and utils.fs_scandir_next_profiled(handle, absolute_path) ~= nil
+---@param parent Node
+---@param absolute_path string
+---@param name string
+---@param fs_stat uv.fs_stat.result|nil
+---@return Node
+function M.folder(parent, absolute_path, name, fs_stat)
+  local handle = vim.loop.fs_scandir(absolute_path)
+  local has_children = handle and vim.loop.fs_scandir_next(handle) ~= nil
 
   local node = {
     type = "directory",
     absolute_path = absolute_path,
-    fs_stat = vim.loop.fs_stat(absolute_path),
+    fs_stat = fs_stat,
     group_next = nil, -- If node is grouped, this points to the next child dir/link node
     has_children = has_children,
     name = name,
@@ -25,8 +30,8 @@ function M.folder(parent, absolute_path, name)
 end
 
 --- path is an executable file or directory
---- @param absolute_path string
---- @return boolean
+---@param absolute_path string
+---@return boolean|nil
 function M.is_executable(absolute_path)
   if utils.is_windows or utils.is_wsl then
     --- executable detection on windows is buggy and not performant hence it is disabled
@@ -36,7 +41,12 @@ function M.is_executable(absolute_path)
   end
 end
 
-function M.file(parent, absolute_path, name)
+---@param parent Node
+---@param absolute_path string
+---@param name string
+---@param fs_stat uv.fs_stat.result|nil
+---@return Node
+function M.file(parent, absolute_path, name, fs_stat)
   local ext = string.match(name, ".?[^.]+%.(.*)") or ""
 
   return {
@@ -44,7 +54,7 @@ function M.file(parent, absolute_path, name)
     absolute_path = absolute_path,
     executable = M.is_executable(absolute_path),
     extension = ext,
-    fs_stat = vim.loop.fs_stat(absolute_path),
+    fs_stat = fs_stat,
     name = name,
     parent = parent,
   }
@@ -55,7 +65,12 @@ end
 -- links (for instance libr2.so in /usr/lib) and thus even with a C program realpath fails
 -- when it has no real reason to. Maybe there is a reason, but errno is definitely wrong.
 -- So we need to check for link_to ~= nil when adding new links to the main tree
-function M.link(parent, absolute_path, name)
+---@param parent Node
+---@param absolute_path string
+---@param name string
+---@param fs_stat uv.fs_stat.result|nil
+---@return Node
+function M.link(parent, absolute_path, name, fs_stat)
   --- I dont know if this is needed, because in my understanding, there isn't hard links in windows, but just to be sure i changed it.
   local link_to = vim.loop.fs_realpath(absolute_path)
   local open, nodes, has_children
@@ -63,8 +78,8 @@ function M.link(parent, absolute_path, name)
   local is_dir_link = (link_to ~= nil) and vim.loop.fs_stat(link_to).type == "directory"
 
   if is_dir_link then
-    local handle = utils.fs_scandir_profiled(link_to)
-    has_children = handle and utils.fs_scandir_next_profiled(handle, link_to) ~= nil
+    local handle = vim.loop.fs_scandir(link_to)
+    has_children = handle and vim.loop.fs_scandir_next(handle) ~= nil
     open = false
     nodes = {}
   end
@@ -72,7 +87,7 @@ function M.link(parent, absolute_path, name)
   local node = {
     type = "link",
     absolute_path = absolute_path,
-    fs_stat = vim.loop.fs_stat(absolute_path),
+    fs_stat = fs_stat,
     group_next = nil, -- If node is grouped, this points to the next child dir/link node
     has_children = has_children,
     link_to = link_to,

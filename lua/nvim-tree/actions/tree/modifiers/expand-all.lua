@@ -2,9 +2,12 @@ local core = require "nvim-tree.core"
 local renderer = require "nvim-tree.renderer"
 local Iterator = require "nvim-tree.iterators.node-iterator"
 local notify = require "nvim-tree.notify"
+local lib = require "nvim-tree.lib"
 
 local M = {}
 
+---@param list string[]
+---@return table
 local function to_lookup_table(list)
   local table = {}
   for _, element in ipairs(list) do
@@ -14,13 +17,18 @@ local function to_lookup_table(list)
   return table
 end
 
+---@param node Node
 local function expand(node)
+  node = lib.get_last_group_node(node)
   node.open = true
   if #node.nodes == 0 then
     core.get_explorer():expand(node)
   end
 end
 
+---@param expansion_count integer
+---@param node Node
+---@return boolean
 local function should_expand(expansion_count, node)
   local should_halt = expansion_count >= M.MAX_FOLDER_DISCOVERY
   local should_exclude = M.EXCLUDE[node.name]
@@ -45,7 +53,7 @@ local function gen_iterator()
         end
       end)
       :recursor(function(node)
-        return expansion_count < M.MAX_FOLDER_DISCOVERY and node.open and node.nodes
+        return expansion_count < M.MAX_FOLDER_DISCOVERY and (node.group_next and { node.group_next } or (node.open and node.nodes))
       end)
       :iterate()
 
@@ -55,6 +63,7 @@ local function gen_iterator()
   end
 end
 
+---@param base_node table
 function M.fn(base_node)
   local node = base_node.nodes and base_node or core.get_explorer()
   if gen_iterator()(node) then
